@@ -9,7 +9,7 @@ There are many Citibike visualizations out there but as of this writing, I haven
  
 The goal of this project is to visualize the real-time bike flows in and out of Citibike stations over a 24-hour period. The required data is recorded as one trip per row: start/end station ids, start/end times, and station lat/lon coordinates. The challenge is to get the data into a form suitable for an animation. Each frame represents a summary snapshot of the system at a fifteen minute interval: station id, map location, time interval, and departure ratio.
 
-The **ggmap** package is used to generate each interval map within a loop, then the **animation** package saves the output to disk with the saveHTML() function and creates an HTML page using the Cloudfare and SciAnimator libraries. I converted the resulting PNGs to JPG for viewing on the web.
+The **ggmap** package is used to generate each interval map within a loop, then the **animation** package saves the output to disk with the saveHTML() function and creates an HTML page using the Cloudflare and SciAnimator libraries. I converted the resulting PNGs to JPG for viewing on the web.
 
 
 
