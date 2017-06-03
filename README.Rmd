@@ -1,0 +1,95 @@
+---
+title: "DATA 608 Final Project"
+output: html_document
+---
+
+##Citibike Station Flow Animation
+
+There are many Citibike visualizations out there but as of this writing, I haven't seen one that gives a sense of the system status as a whole over a time period. Real-time bike inventory is available from the Citibike site and through their app, but historical data is available only for trips. However, the actual flow of traffic between stations can be recreated from the available data.
+ 
+The goal of this project is to visualize the real-time bike flows in and out of Citibike stations over a 24-hour period. The required data is recorded as one trip per row: start/end station ids, start/end times, and station lat/lon coordinates. The challenge is to get the data into a form suitable for an animation. Each frame represents a summary snapshot of the system at a fifteen minute interval: station id, map location, time interval, and departure ratio.
+
+The **ggmap** package is used to generate each interval map within a loop, then the **animation** package saves the output to disk with the saveHTML() function and creates an HTML page using the Cloudfare and SciAnimator libraries. I converted the resulting PNGs to JPG for viewing on the web.
+
+
+
+```{r, eval=FALSE}
+trips <- read.csv("201604-citibike-tripdata.csv", stringsAsFactors=FALSE)
+
+# target day chosen arbitrarily
+trips.apr.7 <- subset(trips, substr(trips$starttime, 1,8) == "4/7/2016")
+
+# convert date strings to proper date objects
+trips.apr.7$starttime <- strptime(trips.apr.7$starttime, "%m/%d/%Y %H:%M:%S")
+trips.apr.7$stoptime <- strptime(trips.apr.7$stoptime, "%m/%d/%Y %H:%M:%S")
+
+# create the fifteen-minute time initervals
+fifteenMin <- as.POSIXlt("2016-04-07 00:00:00") + as.difftime(15*(0:95),units="mins")
+
+# bin times into intervals
+trips.apr.7$startInt <- findInterval(trips.apr.7$starttime, fifteenMin)
+trips.apr.7$stopInt <- findInterval(trips.apr.7$stoptime, fifteenMin)
+
+
+# count trips per station per bin
+st.data <- aggregate(trips.apr.7[c("start.station.id")], 
+by=trips.apr.7[c("startInt","start.station.id")], FUN="length")
+end.data <- aggregate(trips.apr.7[c("end.station.id")], 
+by=trips.apr.7[c("stopInt","end.station.id")], FUN="length")
+
+names(st.data) <- c("timeInt","station.id","dep")
+names(end.data) <- c("timeInt","station.id","arr")
+
+# build main table, replace NAs with zero
+trip.ints <- merge(st.data, end.data, all=TRUE)
+trip.ints[is.na(trip.ints)] <- 0
+
+
+# we now need a table of lat/log for each station
+from <- 
+data.frame(station.id=trips.apr.7$start.station.id,lon=as.numeric(trips.apr.7$start.sta
+tion.longitude), lat=as.numeric(trips.apr.7$start.station.latitude))
+to   <- 
+data.frame(station.id=trips.apr.7$end.station.id,lon=as.numeric(trips.apr.7$end.station
+.longitude), lat=as.numeric(trips.apr.7$end.station.latitude))
+stations.geo <- rbind(from,to)
+stations.geo <- unique(stations.geo)
+#save(stations.geo, file="stations.geo.bin")
+
+# map.data is the final table
+map.data<-merge(stations.geo, trip.ints)
+
+# calc the departure/arrival ratio for each station per interval
+# ggplot complains about zero values for the ratio coloring, so add arbitrary fraction
+map.data$dep.ratio <- 0.001 + (map.data$dep / (map.data$dep + map.data$arr))
+#save(map.data, file="map.data.bin")
+```
+
+The following code generates the animation. The **animation** package generally works well, but I found it really slows to a crawl with jobs longer than 100 frames.
+
+```{r, eval=FALSE}
+library(ggmap)
+library(animation)
+
+map.center = as.numeric(geocode("Kips Bay, New York City"))
+nyc1 = ggmap(get_googlemap(center=map.center, zoom=12,style = 'feature:all|element:labels|visibility:off'), legend="bottom", maptype = "satellite", extent="device", maprange=FALSE)
+
+map.prev <- nyc1 + geom_point(aes(x=lon, y=lat), data=stations.geo, col="black", alpha=1, size=1) + labs(caption="Citibike Station Departure/Arrival Ratio") + theme(legend.position="right", plot.caption = element_text(hjust=0, size=rel(1.2)))
+ani.options(interval = 0.5) # initial time between frames
+ani.record(reset = TRUE)
+
+saveHTML({
+  for (i in 1:96) {
+    #dev.hold()
+    map.slice <- map.data[map.data$timeInt==i,]
+
+    map.current <- map.prev + geom_point(aes(x=lon, y=lat, color=dep.ratio), data=map.slice,  alpha=1, size=3) + scale_color_gradient(low="red", high="green3") + labs(caption=paste("Citibike Station Departure/Arrival Ratio at ", fifteenMin[i])) + theme(legend.position="right", plot.caption = element_text(hjust=0, size=rel(1.2)))
+    print(map.current)
+
+    map.prev <- map.prev + geom_point(aes(x=lon, y=lat, color=dep.ratio), data=map.slice,  alpha=1, size=2) + scale_color_gradient(low="red", high="green")
+    
+  }
+}, img.name = 'flowmap', ani.type = 'png', autoplay = FALSE, ani.height = 640, ani.width = 640, loop = FALSE, htmlfile = 'citibike_flows.html', verbose = FALSE, description = 'Citibike Station Departure/Arrival Ratio over 24 hrs',outdir = "images",single.opts = "'controls': ['first', 'previous', 'play', 'next', 'last', 'loop', 'speed'], 'delayMin': 0")
+
+```
+The animation is viewable at http://htmlpreview.github.com/?https://github.com/fdsps/IS608/blob/master/citibike_flows.html
